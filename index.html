@@ -60,6 +60,12 @@ textarea{min-height:105px;resize:vertical}
 .annotation-title{font-weight:800;flex:1}
 .game-delete{font-size:11px!important;padding:5px 8px!important;flex:0 0 auto!important;opacity:.8}
 .note-card{padding:13px;border:1px solid var(--border);border-radius:12px;background:#0c1322}
+.palworld-draggable-card{display:flex;align-items:center;gap:10px;cursor:grab}
+.palworld-draggable-card.dragging{opacity:.45}
+.palworld-draggable-card.drag-over{border-color:#8b5cff;box-shadow:0 0 0 2px rgba(116,56,255,.25)}
+.palworld-card-content{flex:1;min-width:0;cursor:pointer}
+.palworld-rename-btn{flex:0 0 auto}
+@media(max-width:700px){.palworld-draggable-card{align-items:flex-start}.palworld-rename-btn{padding:7px 8px}}
 .palworld-note-editor{width:100%}
 .palworld-note-card{width:100%;cursor:default}
 .palworld-note-card:hover{border-color:var(--border)}
@@ -290,12 +296,90 @@ function renderPalworldClasses(){
  const b=document.getElementById('palworldClassGrid');if(!b)return;b.innerHTML='';
  const classes=Object.keys(state.palworldClasses||{});
  if(!classes.length){b.innerHTML='<div class="empty" style="grid-column:1/-1">Nenhuma classe de anotação criada.</div>';return}
- classes.forEach(c=>{
-  const d=document.createElement('div');d.className='card';
-  d.innerHTML='<b>🗂️ '+escapeHtml(c)+'</b><div class="sub">'+((state.palworldClasses[c]||[]).length)+' anotação(ões)</div>';
-  d.onclick=()=>openPalworldClass(c);b.appendChild(d);
+ classes.forEach((c,index)=>{
+  const d=document.createElement('div');d.className='card palworld-draggable-card';d.draggable=true;d.dataset.index=index;
+  d.innerHTML='<span class="drag-handle" title="Arraste para mudar a ordem">☰</span><div class="palworld-card-content"><b>🗂️ '+escapeHtml(c)+'</b><div class="sub">'+((state.palworldClasses[c]||[]).length)+' anotação(ões)</div></div><button type="button" class="secondary small palworld-rename-btn">Renomear</button>';
+  d.querySelector('.palworld-card-content').onclick=()=>openPalworldClass(c);
+  d.querySelector('.palworld-rename-btn').onclick=e=>{e.stopPropagation();renamePalworldClass(c)};
+  enablePalworldClassDrag(d,index);
+  b.appendChild(d);
  });
 }
+function renamePalworldClass(oldName){
+ const novo=prompt('Novo título da pasta:',oldName);
+ if(novo===null)return;
+ const nome=novo.trim();
+ if(!nome||nome===oldName)return;
+ state.palworldClasses=state.palworldClasses||{};
+ if(Object.keys(state.palworldClasses).some(c=>c!==oldName&&norm(c)===norm(nome))){
+  alert('Já existe uma pasta com esse título.');return;
+ }
+ const reordered={};
+ Object.keys(state.palworldClasses).forEach(c=>{reordered[c===oldName?nome:c]=state.palworldClasses[c]});
+ state.palworldClasses=reordered;
+ if(currentPalworldClass===oldName)currentPalworldClass=nome;
+ save();renderPalworldClasses();
+ if(document.getElementById('palworldClass')?.classList.contains('active')){
+  document.getElementById('palworldClassTitle').textContent=nome;
+  const back=document.getElementById('palworldBackClass');if(back)back.textContent=nome;
+ }
+}
+
+function renamePalworldNoteById(id){
+ const arr=state.palworldClasses[currentPalworldClass]||[];
+ const n=arr.find(x=>x.id===id);if(!n)return;
+ const novo=prompt('Novo título da anotação:',n.title||'');
+ if(novo===null)return;
+ const nome=novo.trim();
+ if(!nome)return;
+ n.title=nome;
+ save();renderPalworldNotes();renderPalworldClasses();
+ if(currentPalworldNote===id){
+  const title=document.getElementById('palworldNoteTitle');if(title)title.textContent=nome;
+ }
+}
+
+function enablePalworldClassDrag(card,index){
+ card.addEventListener('dragstart',e=>{
+  if(e.target.closest('button')){e.preventDefault();return}
+  card.classList.add('dragging');
+  e.dataTransfer.effectAllowed='move';
+  e.dataTransfer.setData('text/plain',String(index));
+ });
+ card.addEventListener('dragend',()=>card.classList.remove('dragging'));
+ card.addEventListener('dragover',e=>{e.preventDefault();card.classList.add('drag-over')});
+ card.addEventListener('dragleave',()=>card.classList.remove('drag-over'));
+ card.addEventListener('drop',e=>{
+  e.preventDefault();card.classList.remove('drag-over');
+  const from=Number(e.dataTransfer.getData('text/plain'));
+  const to=index;if(!Number.isInteger(from)||from===to)return;
+  const keys=Object.keys(state.palworldClasses||{});
+  const moved=keys.splice(from,1)[0];keys.splice(to,0,moved);
+  const reordered={};keys.forEach(k=>reordered[k]=state.palworldClasses[k]);
+  state.palworldClasses=reordered;save();renderPalworldClasses();
+ });
+}
+
+function enablePalworldNoteDrag(card,index){
+ card.addEventListener('dragstart',e=>{
+  if(e.target.closest('button')){e.preventDefault();return}
+  card.classList.add('dragging');
+  e.dataTransfer.effectAllowed='move';
+  e.dataTransfer.setData('text/plain',String(index));
+ });
+ card.addEventListener('dragend',()=>card.classList.remove('dragging'));
+ card.addEventListener('dragover',e=>{e.preventDefault();card.classList.add('drag-over')});
+ card.addEventListener('dragleave',()=>card.classList.remove('drag-over'));
+ card.addEventListener('drop',e=>{
+  e.preventDefault();card.classList.remove('drag-over');
+  const from=Number(e.dataTransfer.getData('text/plain'));
+  const to=index;const arr=state.palworldClasses[currentPalworldClass]||[];
+  if(!Number.isInteger(from)||from===to||!arr[from])return;
+  const moved=arr.splice(from,1)[0];arr.splice(to,0,moved);
+  save();renderPalworldNotes();renderPalworldClasses();
+ });
+}
+
 function addPalworldClass(){
  const input=document.getElementById('newPalworldClassName');
  if(!input){alert('Não foi possível localizar o campo da classe.');return}
@@ -321,11 +405,14 @@ function renderPalworldNotes(){
  const b=document.getElementById('palworldNoteList');if(!b)return;b.innerHTML='';
  const arr=state.palworldClasses[currentPalworldClass]||[];
  if(!arr.length){b.innerHTML='<div class="empty">Nenhuma anotação adicionada nesta classe.</div>';return}
- arr.forEach(n=>{
-  const d=document.createElement('div');d.className='weapon-card';
+ arr.forEach((n,index)=>{
+  const d=document.createElement('div');d.className='weapon-card palworld-draggable-card';d.draggable=true;d.dataset.index=index;
   const preview=(n.body||'').trim().replace(/\s+/g,' ').slice(0,70);
-  d.innerHTML='<b>'+(n.favorite?'⭐ ':'')+escapeHtml(n.title||'Sem título')+'</b><div class="sub">'+(preview?escapeHtml(preview)+(n.body.length>70?'...':''):'Sem conteúdo')+'</div>';
-  d.onclick=()=>openPalworldNote(n.id);b.appendChild(d);
+  d.innerHTML='<span class="drag-handle" title="Arraste para mudar a ordem">☰</span><div class="palworld-card-content"><b>'+(n.favorite?'⭐ ':'')+escapeHtml(n.title||'Sem título')+'</b><div class="sub">'+(preview?escapeHtml(preview)+((n.body||'').length>70?'...':''):'Sem conteúdo')+'</div></div><button type="button" class="secondary small palworld-rename-btn">Renomear</button>';
+  d.querySelector('.palworld-card-content').onclick=()=>openPalworldNote(n.id);
+  d.querySelector('.palworld-rename-btn').onclick=e=>{e.stopPropagation();renamePalworldNoteById(n.id)};
+  enablePalworldNoteDrag(d,index);
+  b.appendChild(d);
  });
 }
 function addPalworldNote(){
@@ -504,7 +591,10 @@ window.onload=()=>{load();renderClasses()};
  <div class="section">
   <div class="section-head">
    <h2 id="palworldClassTitle"></h2>
-   <button type="button" class="danger" onclick="deletePalworldClass()">Excluir classe</button>
+   <div class="actions" style="margin-top:0">
+    <button type="button" class="secondary" onclick="renamePalworldClass(currentPalworldClass)">Alterar título</button>
+    <button type="button" class="danger" onclick="deletePalworldClass()">Excluir classe</button>
+   </div>
   </div>
   <div class="grid2" style="margin-bottom:16px">
    <input id="newPalworldNoteName" placeholder="Nome da anotação">
@@ -523,6 +613,7 @@ window.onload=()=>{load();renderClasses()};
    <textarea id="palworldNoteBody" placeholder="Escreva suas informações aqui..."></textarea>
    <div class="actions">
     <button type="button" onclick="savePalworldNote()">Salvar</button>
+    <button type="button" class="secondary" onclick="renamePalworldNoteById(currentPalworldNote)">Alterar título</button>
     <button type="button" class="secondary" id="palworldNoteFavorite" onclick="togglePalworldNote()">Favoritar</button>
     <button type="button" class="danger" onclick="deletePalworldNote()">Excluir anotação</button>
    </div>
